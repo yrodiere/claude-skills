@@ -7,64 +7,150 @@ description: Use this skill to develop the Quarkus framework or applications bas
 
 Expert guidance for Quarkus framework and application development.
 
-## Hibernate ORM Best Practices
+## Build Commands
+
+```bash
+./mvnw -Dquickly                    # Full build, skip tests/docs/native
+./mvnw install -f extensions/<name>/ # Build one extension
+./mvnw verify -f extensions/<name>/ -Dtest-containers -Dstart-containers  # Run extension tests
+./mvnw test -Dtest=MyTest -f extensions/<name>/deployment/               # Run single test
+```
+
+- Always use `install` (not just `compile`) — downstream modules need
+  the jar in the local repo.
+- If you change a runtime module, rebuild its deployment module too.
+- Always add `-Dtest-containers -Dstart-containers` when running tests.
+- **Do not use `-Dno-format`** — formatting and import sorting are
+  applied automatically during compilation.
+
+## Project Structure
+
+- `extensions/<name>/runtime/` — Runtime classes, recorders, beans
+- `extensions/<name>/deployment/` — `@BuildStep` processors (tests live here)
+- `extensions/<name>/deployment-spi/` — Build items shared between extensions
+- `extensions/<name>/runtime-dev/` — Dev mode runtime classes
+
+**Deployment depends on runtime, NEVER the reverse.** Runtime code must
+not reference deployment classes.
+
+## Build Steps
+
+### Recorders Bridge Deployment and Runtime
+
+A `@Recorder` lives in the runtime module but is invoked from deployment
+build steps. It generates bytecode that runs at application startup.
+
+```java
+// In deployment module:
+@BuildStep
+@Record(ExecutionTime.RUNTIME_INIT)
+void configure(MyRecorder recorder, ...) {
+    recorder.doSomething(buildTimeValue);
+}
+```
+
+### Build Items
+
+- `SimpleBuildItem` — at most one instance per build
+- `MultiBuildItem` — multiple instances collected as `List<>`
+- Build items in `deployment-spi/` are shared between extensions
+- Build items in `deployment/` are internal to the extension
+
+### Cycle Detection
+
+The build step chain is validated statically. If step A produces item X,
+and step B consumes X and produces item Y, and Y feeds back to A's
+inputs, a cycle is detected — even if the production is conditional.
+
+Common cycle pattern with `BeanDiscoveryFinishedBuildItem`:
+```
+BeanDiscoveryFinished → (your step) → AdditionalBeanBuildItem → Arc → BeanDiscoveryFinished
+```
+
+Fixes:
+- Move `AdditionalBeanBuildItem` production to a step that does not
+  depend on `BeanDiscoveryFinishedBuildItem`
+- Convert from `AdditionalBeanBuildItem` to `SyntheticBeanBuildItem`
+  (feeds into a later Arc phase, after `BeanDiscoveryFinished`)
+- Extract the offending production into a separate build step
+
+`SyntheticBeanBuildItem` does NOT cause cycles because it feeds into
+`BeanRegistrationPhaseBuildItem`, which is after `BeanDiscoveryFinished`.
+
+### Synthetic Beans
+
+```java
+syntheticBeans.produce(SyntheticBeanBuildItem.configure(MyBean.class)
+        .scope(Singleton.class)
+        .unremovable()
+        .setRuntimeInit()
+        .addInjectionPoint(ClassType.create(DotName.createSimple(MyDep.class)))
+        .createWith(recorder.myBeanSupplier())
+        .done());
+```
+
+- Use `.setRuntimeInit()` if the bean needs runtime config
+- Declare all dependencies as `.addInjectionPoint()` — Arc removes beans
+  it considers unused, and programmatic lookups via `Arc.container()` are
+  invisible to Arc's unused bean detection
+- Use `.unremovable()` for beans looked up programmatically
+
+## Hibernate ORM
 
 ### Programmatic Transactions
-- **Prefer `QuarkusTransaction`** for programmatic transaction management
-  - Use `QuarkusTransaction.requiringNew().run(() -> { ... })` for new transactions
-  - Use `QuarkusTransaction.joiningExisting().run(() -> { ... })` to join existing transactions
-  - Don't use `begin()`/`commit()`/`rollback()` - use the functional API instead
-  - Don't use `UserTransaction` directly unless specifically required
+- **Prefer `QuarkusTransaction`** over `UserTransaction`
+  - `QuarkusTransaction.requiringNew().run(() -> { ... })`
+  - `QuarkusTransaction.joiningExisting().run(() -> { ... })`
 
 ### Query APIs
-- **Prefer `session.createSelectionQuery()`** for read queries
-  - Modern Hibernate 6+ API
-  - Type-safe and more expressive
-  - Example: `session.createSelectionQuery("SELECT name FROM Person", String.class)`
-- Avoid legacy `createQuery()` unless necessary for compatibility
+- **Prefer `session.createSelectionQuery()`** (Hibernate 6+ API)
+- Avoid legacy `createQuery()` unless necessary
 
 ### Session Management
-- Use `@Inject Session` for regular Hibernate Session
-- Use `@Inject StatelessSession` for stateless operations
+- `@Inject Session` for regular Hibernate Session
+- `@Inject StatelessSession` for stateless operations
+- `@Inject Mutiny.SessionFactory` for Hibernate Reactive
 
-## General Quarkus Patterns
+## Testing
 
-### Dependency Injection
-- Use `@Inject` for CDI bean injection
-- Use qualifiers like `@PersistenceUnit` for multiple persistence units
-- Prefer field injection when possible in tests
+### Test Annotations
 
-### Testing
-- Use `QuarkusExtensionTest` for extension tests (deployment module)
-- Use `QuarkusTest` for integration tests
-- Use `QuarkusUnitTest` for older versions of Quarkus only where QuarkusExtensionTest is not available
-- For Hibernate ORM/Reactive tests, prefer simple top-level entity types like `io.quarkus.hibernate.orm.MyEntity` instead of creating custom entities
+- **`QuarkusExtensionTest`** (with `@RegisterExtension`) — For deployment
+  module tests. Creates a synthetic application.
+- **`@QuarkusTest`** — Full application startup. For integration tests.
+- **`@QuarkusIntegrationTest`** — Tests against built artifact.
 
-## Quarkus Build Specifics
+### QuarkusExtensionTest Patterns
 
-Quarkus is a very large project. Building/testing the whole project is not time-efficient.
+```java
+@RegisterExtension
+static final QuarkusExtensionTest config = new QuarkusExtensionTest()
+    .withApplicationRoot((jar) -> jar
+        .addClasses(MyResource.class, MyService.class))
+    .overrideConfigKey("quarkus.some.key", "value");
+```
 
-### Running Tests
-- **Always `cd` to the module first** before running Maven commands, OR
-- Use `-f <path-to-module>` to specify the module from the root
-- **For extensions requiring containers** (Hibernate Reactive, Reactive Panache, etc.), add `-Dstart-containers -Dtest-containers`
-  - These modules use PostgreSQL and need containers started
-  - Hibernate ORM uses H2 and doesn't require containers
-- Examples:
-  - `cd extensions/hibernate-orm/deployment && mvn test -Dtest=MyTest`
-  - `cd extensions/hibernate-reactive/deployment && mvn test -Dtest=MyTest -Dstart-containers -Dtest-containers`
-  - `mvn test -Dtest=MyTest -f extensions/hibernate-orm/deployment`
+- Use `.assertException(t -> assertThat(t).hasMessageContaining(...))`
+  for tests that expect build/startup failure
+- Use `.withEmptyApplication()` for tests with no application classes
+- Use `.setExcludedDependencies()` to remove extensions from classpath
+- Use `.setForcedDependencies()` to add extensions to classpath
+- The test class itself is a CDI bean and can have `@Inject` fields, which will be handled like any other bean.
 
-### Module Structure
-- Extensions have separate runtime and deployment modules
-- Tests live in the deployment module: `extensions/<extension-name>/deployment`
-- **If you modify runtime code**, you must compile and install it before running deployment tests:
-  - `cd extensions/<extension-name>/runtime && mvn clean install -DskipTests`
-  - Then run your deployment tests
+### Test Location
 
-## Common Pitfalls to Avoid
+- Extension deployment tests: `extensions/<name>/deployment/src/test/`
+- Integration tests: `integration-tests/`
 
-- Don't use `UserTransaction` when `QuarkusTransaction` is available
-- Don't use legacy query APIs when modern ones exist
-- Don't forget that Quarkus uses build-time configuration for many features
-- Don't run Maven from the wrong directory - always cd to the module or use -f
+## Coding Style
+
+- 4-space indentation (enforced by formatter)
+- **Never manually sort imports** — `impsort-maven-plugin` handles it
+- Use **JBoss Logging** (`org.jboss.logging.Logger`)
+- No `@author` tags, no wildcard imports
+- Use `@ConfigMapping` interfaces for configuration
+- Use `String.format(Locale.ROOT, ...)` — `.formatted()` is a forbidden API
+
+## Common Pitfalls
+
+- **Classloading**: runtime code must never reference deployment classes
