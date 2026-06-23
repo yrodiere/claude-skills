@@ -44,6 +44,18 @@ Expert guidance for Quarkus framework and application development.
 
 Quarkus is a very large project. Building/testing the whole project is not time-efficient.
 
+### Full Build
+
+When you need to build the whole project (or a large portion of it),
+use parallel threads with `-Dquickly`:
+
+```bash
+./mvnw -T 0.5C -Dquickly
+```
+
+`-T 0.5C` uses half a thread per CPU core, providing significant speedup
+for the large multi-module build.
+
 ### Running Tests
 - **Always `cd` to the module first** before running Maven commands, OR
 - Use `-f <path-to-module>` to specify the module from the root
