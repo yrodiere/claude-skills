@@ -22,6 +22,9 @@ Expert guidance for Quarkus framework and application development.
 - Always add `-Dtest-containers -Dstart-containers` when running tests.
 - **Do not use `-Dno-format`** — formatting and import sorting are
   applied automatically during compilation.
+- **Remember the build is very long (10+ minutes)**. It is not a viable strategy to re-run it
+  just to look more precisely for errors. If you intend to do that, make sure to save build
+  logs to a file when building, then work on that file for various grep operations.
 
 ## Project Structure
 
