@@ -10,6 +10,7 @@ Expert guidance for Quarkus framework and application development.
 ## Build Commands
 
 ```bash
+./mvnw -T 0.5C -Dquickly           # Full parallel build, skip tests/docs/native
 ./mvnw -Dquickly                    # Full build, skip tests/docs/native
 ./mvnw install -f extensions/<name>/ # Build one extension
 ./mvnw verify -f extensions/<name>/ -Dtest-containers -Dstart-containers  # Run extension tests
@@ -22,6 +23,8 @@ Expert guidance for Quarkus framework and application development.
 - Always add `-Dtest-containers -Dstart-containers` when running tests.
 - **Do not use `-Dno-format`** — formatting and import sorting are
   applied automatically during compilation.
+- Prefer `-T 0.5C` (half a thread per CPU core) for full builds —
+  it parallelizes module builds and significantly reduces wall-clock time.
 - **Remember the build is very long (10+ minutes)**. It is not a viable strategy to re-run it
   just to look more precisely for errors. If you intend to do that, make sure to save build
   logs to a file when building, then work on that file for various grep operations.
