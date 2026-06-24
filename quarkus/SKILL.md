@@ -9,12 +9,15 @@ Expert guidance for Quarkus framework and application development.
 
 ## Build Commands
 
+Prefer `mvnd` (Maven Daemon) over `./mvnw` when available — it keeps a
+warm JVM across builds and parallelizes modules by default.
+Fall back to `./mvnw` if mvnd is not installed.
+
 ```bash
-./mvnw -T 0.5C -Dquickly           # Full parallel build, skip tests/docs/native
-./mvnw -Dquickly                    # Full build, skip tests/docs/native
-./mvnw install -f extensions/<name>/ # Build one extension
-./mvnw verify -f extensions/<name>/ -Dtest-containers -Dstart-containers  # Run extension tests
-./mvnw test -Dtest=MyTest -f extensions/<name>/deployment/               # Run single test
+mvnd -Dquickly                      # Full build, skip tests/docs/native (parallel by default)
+mvnd install -f extensions/<name>/  # Build one extension
+mvnd verify -f extensions/<name>/ -Dtest-containers -Dstart-containers  # Run extension tests
+mvnd test -Dtest=MyTest -f extensions/<name>/deployment/               # Run single test
 ```
 
 - Always use `install` (not just `compile`) — downstream modules need
@@ -23,8 +26,8 @@ Expert guidance for Quarkus framework and application development.
 - Always add `-Dtest-containers -Dstart-containers` when running tests.
 - **Do not use `-Dno-format`** — formatting and import sorting are
   applied automatically during compilation.
-- Prefer `-T 0.5C` (half a thread per CPU core) for full builds —
-  it parallelizes module builds and significantly reduces wall-clock time.
+- When using `./mvnw` instead of `mvnd`, add `-T 0.5C` to parallelize
+  module builds.
 - **Remember the build is very long (10+ minutes)**. It is not a viable strategy to re-run it
   just to look more precisely for errors. If you intend to do that, make sure to save build
   logs to a file when building, then work on that file for various grep operations.

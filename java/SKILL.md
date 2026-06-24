@@ -17,6 +17,12 @@ Try to understand from the context if what kind of code we're working on - for e
 Also consider security requirements, for example in some context data structures might need salting - good security practices
 and correctness take priority over anything else. When opting for a particular solution because of security or correctness requirements, make sure to document the reasons.
 
+## Build Tools
+When `mvnd` (Maven Daemon) is available, prefer it over `mvn` or `./mvnw` for all Maven
+builds. mvnd keeps a long-lived daemon JVM, reuses JIT-compiled code and cached classloaders
+across builds, and parallelizes module builds by default — no `-T` flag needed.
+If mvnd is not available, fall back to `./mvnw` or `mvn`.
+
 ## Code duplication
 When needing to generate new helpers and utilities, always check first for existing code which could be suitably reused.
 
