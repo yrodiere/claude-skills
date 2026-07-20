@@ -24,6 +24,9 @@ mvnd test -Dtest=MyTest -f extensions/<name>/deployment/               # Run sin
   the jar in the local repo.
 - If you change a runtime module, rebuild its deployment module too.
 - Always add `-Dtest-containers -Dstart-containers` when running tests.
+- **Podman is available** as a Docker-compatible container engine. Tests
+  that use Testcontainers work transparently with podman — do not skip
+  container-based tests because the `docker` CLI is unavailable.
 - **Do not use `-Dno-format`** — formatting and import sorting are
   applied automatically during compilation.
 - When using `./mvnw` instead of `mvnd`, add `-T 0.5C` to parallelize
