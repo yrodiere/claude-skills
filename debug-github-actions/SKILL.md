@@ -103,36 +103,49 @@ unzip -o /tmp/artifact-outer/*.zip -d /tmp/artifact-content
 ## 4. Build Report Summary
 
 Some projects (e.g. Quarkus) have a **"Build report"** job that
-aggregates all test results into a GitHub Job Summary using
-[quarkusio/action-build-reporter](https://github.com/quarkusio/action-build-reporter).
+aggregates test results into a GitHub Job Summary. The job summary is
+**not** accessible via the REST API (UI only), but the same report may
+also be available as a **check run**.
 
-**The job summary is NOT accessible via the GitHub REST API** — it is
-only visible in the web UI. To get equivalent information
-programmatically, download and parse the build artifacts directly.
+### Try the check run first
 
-### Parsing `build-report.json`
+The [quarkusio/build-reporter](https://github.com/quarkusio/build-reporter)
+library can create a check run named `Build summary for <sha>` whose
+`output.summary` and `output.text` contain the full report. It exists
+when:
 
-If present in a `build-reports-*` artifact, `build-report.json` lists
-module-level build status including compilation errors:
+- **quarkusio/quarkus** PR builds — created by the quarkus-bot GitHub
+  App (not available on other repos).
+- **Forks** using action-build-reporter — the action creates it
+  directly.
+
+Only present when there are **test failures**.
 
 ```bash
-# Find it in extracted artifacts
-find /tmp/artifact-content -name "build-report.json"
+HEAD_SHA=$(gh api "repos/<owner>/<repo>/actions/runs/<run-id>" --jq '.head_sha')
 
-# Show failing modules
-cat /tmp/artifact-content/target/build-report.json \
-  | python3 -c "import json,sys; [print(r['name'], r.get('error','')) for r in json.load(sys.stdin)['projectReports'] if r['status'] != 'SUCCESS']"
+# Find the check run
+gh api "repos/<owner>/<repo>/commits/${HEAD_SHA}/check-runs" --paginate \
+  --jq '.check_runs[] | select(.name | startswith("Build summary for ")) | {id, name}'
+
+# Read it (summary = job table, text = detailed failures with stack traces)
+gh api "repos/<owner>/<repo>/check-runs/<check-run-id>" --jq '.output.summary'
+gh api "repos/<owner>/<repo>/check-runs/<check-run-id>" --jq '.output.text'
 ```
 
-### Parsing Surefire/Failsafe XML
+### Fallback: download and parse artifacts
 
-The XML test reports contain the actual test failure details:
+If no check run exists, download `build-reports-*` artifacts (see
+section 3) and parse them:
 
 ```bash
-# Find test reports with failures
-grep -rl '<failure\|<error' /tmp/artifact-content --include="TEST-*.xml"
+# build-report.json — module-level status and compilation errors
+find /tmp/artifact-content -name "build-report.json"
+cat /tmp/artifact-content/target/build-report.json \
+  | python3 -c "import json,sys; [print(r['name'], r.get('error','')) for r in json.load(sys.stdin)['projectReports'] if r['status'] != 'SUCCESS']"
 
-# Extract failure messages
+# Surefire/Failsafe XML — test failure details
+grep -rl '<failure\|<error' /tmp/artifact-content --include="TEST-*.xml"
 grep -A 5 '<failure\|<error' /tmp/artifact-content/**/TEST-*.xml
 ```
 
